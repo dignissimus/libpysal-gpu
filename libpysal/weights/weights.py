@@ -15,6 +15,7 @@ from os.path import basename
 import numpy as np
 import scipy.sparse
 from scipy.sparse.csgraph import connected_components
+from cupyx.scipy.sparse.csgraph import connected_components as cu_connected_components
 
 from ..io.fileio import FileIO
 
@@ -138,6 +139,7 @@ class W:
         id_order=None,
         silence_warnings=False,
         ids=None,  # noqa: ARG002
+        use_gpu=False
     ):
         """Create a spatial weights object.
 
@@ -162,6 +164,7 @@ class W:
         ids : list
             Values to use for keys of the neighbors and weights ``dict`` objects.
         """
+        self.use_gpu = use_gpu
         self.silence_warnings = silence_warnings
         self.transformations = {}
         self.neighbors = neighbors
@@ -550,9 +553,14 @@ class W:
     def n_components(self):
         """Store whether the adjacency matrix is fully connected."""
         if "n_components" not in self._cache:
-            self._n_components, self._component_labels = connected_components(
-                self.sparse
-            )
+            if self.use_gpu:
+                self._n_components, self._component_labels = cu_connected_components(
+                    self.sparse
+                )
+            else:
+                self._n_components, self._component_labels = connected_components(
+                    self.sparse
+                )
             self._cache["n_components"] = self._n_components
             self._cache["component_labels"] = self._component_labels
         return self._n_components
@@ -568,7 +576,7 @@ class W:
             self._cache["component_labels"] = self._component_labels
         return self._component_labels
 
-    def _build_sparse(self):
+    def _build_sparse(self, use_gpu=False):
         """Construct the sparse attribute."""
 
         row = []

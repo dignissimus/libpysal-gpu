@@ -16,6 +16,10 @@ from numpy import inf
 from . import sphere
 from .sphere import RADIUS_EARTH_KM
 
+import cupy as cp
+import cupyx.scipy.sparse as cp_sparse
+from cuml.neighbors import NearestNeighbors
+
 __author__ = "Charles R Schmidt <schmidtc@gmail.com>"
 
 __all__ = ["DISTANCE_METRICS", "FLOAT_EPS", "KDTree"]
@@ -28,6 +32,36 @@ dep_msg = (
     "The {} class is deprecated and will be removed in a future version of libpysal. "
     "Use ``scipy.spatial.KDTree`` directly."
 )
+
+class _CuKDTree:
+    def __init__(self, data, leafsize=10):
+        self.data = cp.asarray(data)
+        self.nn = NearestNeighbors(metric='euclidean')
+        self.nn.fit(self.data)
+        
+    def sparse_distance_matrix(self, other, max_distance, p=2):
+        sparse_gpu_mat = self.nn.radius_neighbors_graph(
+            other.data, 
+            radius=max_distance, 
+        )
+        # TODO: think about data rep
+        coo = sparse_gpu_mat.tocoo()
+
+        query_points = other.data[coo.row]
+        tree_points = self.data[coo.col]
+
+        if p == 2:
+            distances = cp.sqrt(cp.sum((query_points - tree_points) ** 2, axis=1))
+        else:
+            raise NotImplementedError
+
+        dist_mat = cp_sparse.coo_matrix(
+            (distances, (coo.row, coo.col)),
+            shape=coo.shape
+        )
+
+        return dist_mat.tocsr().get()
+
 
 
 def KDTree(data, leafsize=10, distance_metric="Euclidean", radius=RADIUS_EARTH_KM):
@@ -75,6 +109,52 @@ def KDTree(data, leafsize=10, distance_metric="Euclidean", radius=RADIUS_EARTH_K
                 message="The Arc_KDTree class is deprecated",
             )
             return Arc_KDTree(data, leafsize, radius)
+
+def CuKDTree(data, leafsize=10, distance_metric="Euclidean", radius=RADIUS_EARTH_KM):
+    # TODO: Update docstring, copied from non-cuda
+    """kd-tree built on top of kd-tree functionality in scipy. If using scipy
+    0.12 or greater uses the scipy.spatial.cKDTree, otherwise uses
+    scipy.spatial.KDTree. Offers both Arc distance and Euclidean distance. Note
+    that Arc distance is only appropriate when points in latitude and
+    longitude, and the radius set to meaningful value (see docs below).
+
+    Parameters
+    ----------
+    data : array
+        The data points to be indexed. This array is not copied, and so
+        modifying this data will result in bogus results. Typically nx2.
+    leafsize : int
+        The number of points at which the algorithm switches
+        over to brute-force. Has to be positive. Optional, default is 10.
+    distance_metric : string
+        Options: "Euclidean" (default) and "Arc".
+    radius : float
+        Radius of the sphere on which to compute distances. Assumes data in
+        latitude and longitude. Ignored if distance_metric="Euclidean". Typical
+        values: pysal.cg.RADIUS_EARTH_KM (default) pysal.cg.RADIUS_EARTH_MILES
+    """
+
+    warnings.warn(
+        dep_msg.format("KDTree"),
+        FutureWarning,
+        stacklevel=2,
+    )
+
+    if distance_metric.lower() == "euclidean":
+        return _CuKDTree(data, leafsize)
+    elif distance_metric.lower() == "arc":
+        raise NotImplementedError
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=FutureWarning,
+                message="The Arc_KDTree class is deprecated",
+            )
+            return Arc_KDTree(data, leafsize, radius)
+
+
+temp_CuKDTree = scipy.spatial.cKDTree
+
 
 
 # internal hack for the Arc_KDTree class inheritance

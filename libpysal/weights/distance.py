@@ -11,7 +11,7 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.spatial import distance_matrix
 
-from ..cg.kdtree import KDTree
+from ..cg.kdtree import KDTree, CuKDTree
 from .util import (
     WSP2W,
     get_ids,
@@ -805,6 +805,7 @@ class DistanceBand(W):
         silence_warnings=False,
         distance_metric="euclidean",
         radius=None,
+        use_gpu=False
     ):
         """Create distance-band weights.
 
@@ -878,11 +879,18 @@ class DistanceBand(W):
                             category=FutureWarning,
                             message="The KDTree class is deprecated",
                         )
-                        self.kdtree = KDTree(
-                            data, distance_metric=distance_metric, radius=radius
-                        )
+                        if use_gpu:
+                            self.kdtree = CuKDTree(
+                                data, distance_metric=distance_metric, radius=radius
+                            )
+
+                        else:
+                            self.kdtree = KDTree(
+                                data, distance_metric=distance_metric, radius=radius
+                            )
                     self.data = self.kdtree.data
-                except:  # noqa: E722
+                except Exception as e:  # noqa: E722
+                    raise e from e
                     raise ValueError("Could not make array from data") from None
             else:
                 self.data = data
@@ -895,7 +903,7 @@ class DistanceBand(W):
         )
 
     @classmethod
-    def from_shapefile(cls, filepath, threshold, idVariable=None, **kwargs):
+    def from_shapefile(cls, filepath, threshold, idVariable=None, use_gpu=False, **kwargs):
         """
         Distance-band based weights from shapefile
 
@@ -914,7 +922,7 @@ class DistanceBand(W):
         """
         points = get_points_array_from_shapefile(filepath)
         ids = get_ids(filepath, idVariable) if idVariable is not None else None
-        return cls.from_array(points, threshold, ids=ids, **kwargs)
+        return cls.from_array(points, threshold, ids=ids, use_gpu=use_gpu, **kwargs)
 
     @classmethod
     def from_array(cls, array, threshold, **kwargs):
@@ -926,7 +934,7 @@ class DistanceBand(W):
 
     @classmethod
     def from_dataframe(
-        cls, df, threshold, geom_col=None, ids=None, use_index=True, **kwargs
+        cls, df, threshold, geom_col=None, ids=None, use_index=True, use_gpu=False, **kwargs
     ):
         """
         Make DistanceBand weights from a dataframe.
@@ -955,7 +963,7 @@ class DistanceBand(W):
             ids = df.index.tolist()
         elif isinstance(ids, str):
             ids = df[ids].tolist()
-        return cls(pts, threshold, ids=ids, **kwargs)
+        return cls(pts, threshold, ids=ids, use_gpu=use_gpu, **kwargs)
 
     def _band(self):
         """Find all pairs within threshold."""
