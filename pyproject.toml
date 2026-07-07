@@ -39,7 +39,7 @@ dependencies = [
     "scikit-learn>=1.5.0",
     "scipy>=1.14.0",
     "shapely>=2.1",
-    "cupy",
+    "cupy-cuda13x",
     "cudf-cu13==26.6.*",
     "dask-cudf-cu13==26.6.*",
     "cuml-cu13==26.6.*",
